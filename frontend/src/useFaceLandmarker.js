@@ -145,7 +145,7 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
               previousEAR === null
                 ? currentEAR
                 : 0.35 * currentEAR + 0.65 * previousEAR;
-
+    
             smoothedEARRef.current = smoothedEAR;
             setEar(smoothedEAR);
 

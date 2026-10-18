@@ -1,7 +1,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import useFaceLandmarker from "./useFaceLandmarker";
+import useOPI from "./opi/useOPI";
+import useEyeGuardNotifications from "./opi/useEyeGuardNotifications";
 
+// Eye landmark indices from MediaPipe
 const LEFT_EYE = [362, 385, 387, 263, 373, 380];
 const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
 
@@ -14,7 +17,7 @@ const App = () => {
   const [status, setStatus] = useState("Camera is off");
   const [darkMode, setDarkMode] = useState(false);
 
-  // Get live values from our custom hook
+  // Existing webcam blink-detection hook
   const {
     landmarks,
     modelStatus,
@@ -24,6 +27,24 @@ const App = () => {
     ear,
     lastBlinkMinEAR,
   } = useFaceLandmarker(videoRef, cameraOn);
+
+  // OPI calculation and TFBUT configuration
+  const {
+    tfbut,
+    setTfbut,
+    opi,
+    opiStatus,
+  } = useOPI(ibi);
+
+  // Desktop notifications
+  const {
+    notificationsEnabled,
+    notificationStatus,
+    enableNotifications,
+    disableNotifications,
+    testNotification,
+  } = useEyeGuardNotifications(opiStatus.low);
+  
 
   // Start webcam
   async function startCamera() {
@@ -63,7 +84,7 @@ const App = () => {
     setStatus("Camera is off");
   }
 
-  // Release webcam when component unmounts
+  // Release webcam on unmount
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -84,8 +105,10 @@ const App = () => {
     const height = video.videoHeight;
 
     if (width && height) {
-      canvas.width = width;
-      canvas.height = height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -135,6 +158,8 @@ const App = () => {
         reminder: "bg-emerald-950",
         brand: "text-emerald-400",
         badge: "bg-emerald-950 text-emerald-300",
+        input:
+          "border-slate-700 bg-slate-800 text-slate-100",
       }
     : {
         page: "bg-slate-50 text-slate-800",
@@ -147,9 +172,11 @@ const App = () => {
         reminder: "bg-emerald-50",
         brand: "text-emerald-800",
         badge: "bg-emerald-100 text-emerald-800",
+        input:
+          "border-slate-300 bg-white text-slate-900",
       };
 
-  // Dashboard metrics
+  // Existing eye metrics
   const metrics = [
     ["Total blinks", String(blinkCount)],
     ["Blink rate", `${blinkRate} blinks/min`],
@@ -173,6 +200,7 @@ const App = () => {
     <main
       className={`min-h-screen px-5 py-8 transition-colors duration-300 ${theme.page}`}
     >
+      {/* Header */}
       <header className="mx-auto flex max-w-6xl items-center justify-between gap-4">
         <h1 className={`text-2xl font-bold ${theme.brand}`}>
           EyeGuard
@@ -199,6 +227,7 @@ const App = () => {
         </div>
       </header>
 
+      {/* Hero */}
       <section className="mx-auto mt-12 max-w-6xl">
         <p
           className={`text-sm font-semibold uppercase tracking-widest ${theme.brand}`}
@@ -298,9 +327,9 @@ const App = () => {
             </div>
           </section>
 
-          {/* Metrics panel */}
+          {/* Eye metrics */}
           <section
-            className={`rounded-2xl border p-5 shadow-sm transition-colors duration-300 ${theme.card}`}
+            className={`rounded-2xl border p-5 shadow-sm ${theme.card}`}
           >
             <h3 className={`text-lg font-semibold ${theme.heading}`}>
               Eye activity
@@ -315,10 +344,7 @@ const App = () => {
                 key={label}
                 className={`border-b py-5 last:border-b-0 ${theme.divider}`}
               >
-                <p className={`text-sm ${theme.muted}`}>
-                  {label}
-                </p>
-
+                <p className={`text-sm ${theme.muted}`}>{label}</p>
                 <p className={`mt-2 text-2xl font-semibold ${theme.heading}`}>
                   {value}
                 </p>
@@ -338,8 +364,158 @@ const App = () => {
             </div>
           </section>
         </div>
+
+        {/* OPI panel */}
+        <section
+          className={`mt-6 rounded-2xl border p-5 shadow-sm ${theme.card}`}
+        >
+          <h3 className={`text-lg font-semibold ${theme.heading}`}>
+            Ocular Protection Index (OPI)
+          </h3>
+
+          <p className={`mt-2 text-sm leading-6 ${theme.muted}`}>
+            OPI = supplied TFBUT ÷ interblink interval (IBI).
+          </p>
+
+          <div className="mt-5 grid gap-5 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="tfbut"
+                className={`block text-sm font-semibold ${theme.heading}`}
+              >
+                Assumed TFBUT (seconds)
+              </label>
+
+              <input
+                id="tfbut"
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={tfbut}
+                onChange={(event) => setTfbut(event.target.value)}
+                className={`mt-2 w-full rounded-lg border p-3 outline-none focus:ring-2 focus:ring-emerald-600 ${theme.input}`}
+              />
+
+              <p className={`mt-2 text-xs leading-5 ${theme.muted}`}>
+                Five seconds is an illustrative assumption, not a
+                measurement of your eyes.
+              </p>
+            </div>
+
+            <div className={`rounded-xl p-4 ${theme.reminder}`}>
+              <p className={`text-sm ${theme.muted}`}>
+                Calculated OPI
+              </p>
+
+              <p
+                className={`mt-2 text-3xl font-bold ${
+                  opi === null
+                    ? theme.heading
+                    : opiStatus.low
+                    ? "text-amber-500"
+                    : "text-emerald-500"
+                }`}
+              >
+                {opi === null ? "--" : opi.toFixed(2)}
+              </p>
+
+              <p className={`mt-2 text-sm leading-6 ${theme.muted}`}>
+                {opiStatus.label}
+              </p>
+            </div>
+          </div>
+
+          {opiStatus.low && (
+            <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+              <h4 className="font-semibold text-amber-500">
+                EyeGuard reminder
+              </h4>
+
+              <p className={`mt-2 text-sm leading-6 ${theme.muted}`}>
+                OPI is below 1 using the supplied TFBUT assumption.
+                Consider a short screen break. This is an experimental
+                indicator, not a medical diagnosis.
+              </p>
+            </div>
+          )}
+
+          <p className={`mt-4 text-xs leading-5 ${theme.muted}`}>
+            OPI uses the most recently completed IBI. The webcam does
+            not measure TFBUT or diagnose dry eye.
+          </p>
+        </section>
+
+        {/* Desktop notifications */}
+        <section
+          className={`mt-6 rounded-2xl border p-5 shadow-sm ${theme.card}`}
+        >
+          <h3 className={`text-lg font-semibold ${theme.heading}`}>
+            Desktop notifications
+          </h3>
+
+          <p className={`mt-2 text-sm leading-6 ${theme.muted}`}>
+            Enable notifications to receive an operating-system popup
+            when a low-OPI condition is detected while you are using
+            another tab.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={enableNotifications}
+              disabled={notificationsEnabled}
+              className="cursor-pointer rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {notificationsEnabled
+                ? "Notifications enabled"
+                : "Enable notifications"}
+            </button>
+
+            <button
+              onClick={testNotification}
+              className={`cursor-pointer rounded-lg border px-4 py-3 text-sm font-semibold ${theme.secondaryButton}`}
+            >
+              Test notification
+            </button>
+
+            <button
+              onClick={disableNotifications}
+              disabled={!notificationsEnabled}
+              className={`cursor-pointer rounded-lg border px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${theme.secondaryButton}`}
+            >
+              Disable notifications
+            </button>
+          </div>
+
+          <p className={`mt-3 text-sm ${theme.muted}`}>
+            {notificationStatus}
+          </p>
+
+          <p className={`mt-3 text-xs leading-5 ${theme.muted}`}>
+            Notifications require browser permission. Automatic
+            reminders are limited to one per 60 seconds. Background
+            tabs can be throttled or suspended by Chrome.
+          </p>
+        </section>
+
+        {/* Scientific note */}
+        <section
+          className={`mt-6 rounded-2xl border p-5 ${theme.card}`}
+        >
+          <h3 className={`font-semibold ${theme.heading}`}>
+            About these measurements
+          </h3>
+
+          <p className={`mt-2 text-sm leading-6 ${theme.muted}`}>
+            EyeGuard estimates blink behaviour using webcam-based eye
+            landmarks. It cannot directly measure tear-film breakup
+            time (TFBUT). OPI depends on the user-supplied TFBUT
+            assumption and is an experimental indicator, not a
+            clinical diagnosis.
+          </p>
+        </section>
       </section>
 
+      {/* Footer */}
       <footer
         className={`mx-auto mt-10 flex max-w-6xl justify-between gap-4 text-xs ${theme.muted}`}
       >
