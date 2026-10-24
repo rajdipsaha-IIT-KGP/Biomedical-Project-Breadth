@@ -1,9 +1,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import toast from "react-hot-toast";
 
 export default function useEyeGuardNotifications(lowOPI) {
-  const lastNotificationTimeRef = useRef(0);
   const lowOPIRef = useRef(lowOPI);
+  const lastToastTimeRef = useRef(0);
+  const lastDesktopTimeRef = useRef(0);
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     typeof window !== "undefined" &&
@@ -12,20 +14,18 @@ export default function useEyeGuardNotifications(lowOPI) {
   );
 
   const [notificationStatus, setNotificationStatus] = useState(
-    typeof window !== "undefined" &&
-      "Notification" in window &&
-      Notification.permission === "granted"
-      ? "Browser permission granted."
-      : "Notifications are disabled."
+    "Eye-rest reminders are ready."
   );
 
   useEffect(() => {
     lowOPIRef.current = lowOPI;
   }, [lowOPI]);
 
-  const enableNotifications = async () => {
+  const enableNotifications = useCallback(async () => {
     if (!("Notification" in window)) {
-      setNotificationStatus("This browser does not support notifications.");
+      setNotificationStatus(
+        "Desktop notifications are not supported by this browser."
+      );
       return;
     }
 
@@ -34,86 +34,99 @@ export default function useEyeGuardNotifications(lowOPI) {
 
       if (permission === "granted") {
         setNotificationsEnabled(true);
-        setNotificationStatus("Notifications enabled.");
+        setNotificationStatus("Desktop notifications enabled.");
       } else {
         setNotificationsEnabled(false);
-        setNotificationStatus("Please allow notifications in browser settings.");
+        setNotificationStatus(
+          "Permission not granted. In-app reminders will still work."
+        );
       }
     } catch (error) {
-      console.error(error);
-      setNotificationStatus("Could not request notification permission.");
+      console.error("Notification permission error:", error);
+      setNotificationStatus("Could not enable desktop notifications.");
     }
-  };
+  }, []);
 
-  const disableNotifications = () => {
+  const disableNotifications = useCallback(() => {
     setNotificationsEnabled(false);
-    setNotificationStatus("Notifications disabled.");
-  };
+    setNotificationStatus(
+      "Desktop notifications disabled. In-app reminders remain available."
+    );
+  }, []);
 
   const sendNotification = useCallback((title, body, tag) => {
     if (
       !("Notification" in window) ||
       Notification.permission !== "granted"
     ) {
-      setNotificationStatus("Allow notifications in browser settings first.");
       return false;
     }
 
     try {
-      new Notification(title, {
-        body,
-        tag,
-      });
-
+      new Notification(title, { body, tag });
       return true;
     } catch (error) {
-      console.error("Notification failed:", error);
-      setNotificationStatus("Could not display notification.");
+      console.error("Desktop notification failed:", error);
       return false;
     }
   }, []);
 
-  const testNotification = () => {
+  const testNotification = useCallback(() => {
     const sent = sendNotification(
-      "EyeGuard is working 👁️",
-      "Desktop notifications are working!",
-      `eyeguard-test-${Date.now()}`
+      "EyeGuard test 👁️",
+      "Your desktop notifications are working!",
+      "eyeguard-test"
     );
 
-    if (sent) {
-      setNotificationStatus("Test notification sent.");
-    }
-  };
+    setNotificationStatus(
+      sent
+        ? "Test desktop notification sent."
+        : "Desktop notification unavailable. Check browser permission."
+    );
+  }, [sendNotification]);
 
-  // Check OPI continuously while notifications are enabled.
   useEffect(() => {
-  if (!notificationsEnabled || !lowOPI) return;
+    const checkReminder = () => {
+      if (!lowOPIRef.current) return;
 
-  // Notify immediately when OPI is below 1.
-  const now = Date.now();
+      const now = Date.now();
 
-  if (now - lastNotificationTimeRef.current < 60_000) {
-    return;
-  }
+      // In-app toast: once per minute at most.
+      if (now - lastToastTimeRef.current >= 60_000) {
+        toast("Close your eyes gently for 10–20 seconds. 😌", {
+          duration: 5000,
+          id: "eyeguard-eye-rest",
+        });
 
-  if (
-    "Notification" in window &&
-    Notification.permission === "granted"
-  ) {
-    try {
-      new Notification("EyeGuard reminder 👁️", {
-        body: "Your calculated OPI is below 1. Consider taking a short screen break.",
-        tag: "eyeguard-opi-reminder",
-      });
+        lastToastTimeRef.current = now;
+      }
 
-      lastNotificationTimeRef.current = now;
-      setNotificationStatus("Low OPI reminder sent.");
-    } catch (error) {
-      console.error("Automatic notification failed:", error);
-      setNotificationStatus("Could not display the automatic reminder.");
-    }
-  }
-}, [lowOPI, notificationsEnabled]);
+      // Desktop notification: separately controlled.
+      if (
+        notificationsEnabled &&
+        "Notification" in window &&
+        Notification.permission === "granted" &&
+        now - lastDesktopTimeRef.current >= 60_000
+      ) {
+        const sent = sendNotification(
+          "Time to rest your eyes! 👁️",
+          "Close your eyes gently for 10–20 seconds and relax.",
+          "eyeguard-eye-rest"
+        );
+
+        if (sent) {
+          lastDesktopTimeRef.current = now;
+          setNotificationStatus("Eye-rest reminder sent.");
+        }
+      }
+    };
+
+    checkReminder();
+
+    const intervalId = setInterval(checkReminder, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [notificationsEnabled, sendNotification]);
 
   return {
     notificationsEnabled,

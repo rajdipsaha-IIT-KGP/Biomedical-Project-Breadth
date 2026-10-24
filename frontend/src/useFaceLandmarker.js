@@ -5,7 +5,6 @@ import {
   FilesetResolver,
 } from "@mediapipe/tasks-vision";
 
-// Eye landmark indices from MediaPipe
 const LEFT_EYE = [362, 385, 387, 263, 373, 380];
 const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
 
@@ -13,14 +12,12 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// Calculate Eye Aspect Ratio (EAR)
 function calculateEAR(points, indices) {
   const [p1, p2, p3, p4, p5, p6] = indices.map(
     (index) => points[index]
   );
 
   const horizontal = distance(p1, p4);
-
   if (horizontal === 0) return 0;
 
   return (
@@ -30,19 +27,14 @@ function calculateEAR(points, indices) {
 
 export default function useFaceLandmarker(videoRef, cameraOn) {
   const landmarkerRef = useRef(null);
-
-  // Existing blink detection refs
   const previousClosedRef = useRef(false);
   const lastBlinkTimeRef = useRef(null);
   const blinkTimesRef = useRef([]);
   const lastVideoTimeRef = useRef(-1);
-
-  // EAR smoothing and closure tracking refs
   const smoothedEARRef = useRef(null);
   const closureStartTimeRef = useRef(null);
   const minimumEARRef = useRef(null);
 
-  // UI states
   const [landmarks, setLandmarks] = useState(null);
   const [modelStatus, setModelStatus] = useState("Loading model...");
   const [blinkCount, setBlinkCount] = useState(0);
@@ -50,8 +42,8 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
   const [ear, setEar] = useState(null);
   const [ibi, setIbi] = useState(null);
   const [lastBlinkMinEAR, setLastBlinkMinEAR] = useState(null);
+  const [lastBlinkTime, setLastBlinkTime] = useState(null);
 
-  // Load the MediaPipe model
   useEffect(() => {
     let cancelled = false;
     let landmarker;
@@ -64,17 +56,14 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm"
         );
 
-        landmarker = await FaceLandmarker.createFromOptions(
-          vision,
-          {
-            baseOptions: {
-              modelAssetPath: "/models/face_landmarker.task",
-              delegate: "GPU",
-            },
-            runningMode: "VIDEO",
-            numFaces: 1,
-          }
-        );
+        landmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "/models/face_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numFaces: 1,
+        });
 
         if (cancelled) {
           landmarker.close();
@@ -85,10 +74,7 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
         setModelStatus("Model ready");
       } catch (error) {
         console.error("MediaPipe initialization failed:", error);
-
-        if (!cancelled) {
-          setModelStatus("Model failed to load");
-        }
+        if (!cancelled) setModelStatus("Model failed to load");
       }
     }
 
@@ -101,7 +87,6 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
     };
   }, []);
 
-  // Detect face and calculate EAR
   useEffect(() => {
     if (!cameraOn || modelStatus !== "Model ready") return;
 
@@ -132,64 +117,49 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
           setLandmarks(points);
 
           if (points) {
-            // Calculate EAR for both eyes
             const leftEAR = calculateEAR(points, LEFT_EYE);
             const rightEAR = calculateEAR(points, RIGHT_EYE);
-
             const currentEAR = (leftEAR + rightEAR) / 2;
 
-            // 1. Smooth EAR
             const previousEAR = smoothedEARRef.current;
-
             const smoothedEAR =
               previousEAR === null
                 ? currentEAR
                 : 0.35 * currentEAR + 0.65 * previousEAR;
-    
+
             smoothedEARRef.current = smoothedEAR;
             setEar(smoothedEAR);
 
-            // 2. Hysteresis thresholds
             const CLOSE_THRESHOLD = 0.19;
             const OPEN_THRESHOLD = 0.23;
-
             const now = performance.now();
 
-            // Eyes transition from open to closed
             if (
               !previousClosedRef.current &&
               smoothedEAR < CLOSE_THRESHOLD
             ) {
               previousClosedRef.current = true;
               closureStartTimeRef.current = now;
-
-              // Start tracking this closure's minimum EAR
               minimumEARRef.current = smoothedEAR;
-            }
-
-            // Eyes remain closed: update minimum EAR
-            else if (previousClosedRef.current) {
+            } else if (previousClosedRef.current) {
               minimumEARRef.current = Math.min(
                 minimumEARRef.current ?? smoothedEAR,
                 smoothedEAR
               );
 
-              // Eyes have reopened
               if (smoothedEAR > OPEN_THRESHOLD) {
                 const closedAt = closureStartTimeRef.current;
-
                 const duration =
                   closedAt === null ? 0 : now - closedAt;
 
-                // Accept plausible blink durations only
                 if (duration >= 70 && duration <= 600) {
+                  const blinkTimestamp = Date.now();
+
                   setBlinkCount((count) => count + 1);
                   blinkTimesRef.current.push(now);
-
-                  // Save minimum EAR for the accepted blink
                   setLastBlinkMinEAR(minimumEARRef.current);
+                  setLastBlinkTime(blinkTimestamp);
 
-                  // Calculate inter-blink interval in seconds
                   if (lastBlinkTimeRef.current !== null) {
                     setIbi(
                       (now - lastBlinkTimeRef.current) / 1000
@@ -199,14 +169,12 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
                   lastBlinkTimeRef.current = now;
                 }
 
-                // Reset closure tracking for the next blink
                 previousClosedRef.current = false;
                 closureStartTimeRef.current = null;
                 minimumEARRef.current = null;
               }
             }
           } else {
-            // No face detected
             setLandmarks(null);
             previousClosedRef.current = false;
             closureStartTimeRef.current = null;
@@ -229,7 +197,6 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
     };
   }, [cameraOn, modelStatus, videoRef]);
 
-  // Rolling blink rate over the last 60 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       const now = performance.now();
@@ -253,5 +220,6 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
     ibi,
     ear,
     lastBlinkMinEAR,
+    lastBlinkTime,
   };
 }

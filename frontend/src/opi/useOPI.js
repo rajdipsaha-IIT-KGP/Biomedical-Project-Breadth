@@ -1,11 +1,31 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { calculateOPI, getOPIStatus } from "./opiUtils";
 
-export default function useOPI(ibi) {
+export default function useOPI(lastBlinkTime) {
   const [tfbut, setTfbut] = useState("5");
+  const [elapsedSeconds, setElapsedSeconds] = useState(null);
 
-  const opi = calculateOPI(tfbut, ibi);
+  useEffect(() => {
+    if (lastBlinkTime === null) {
+      setElapsedSeconds(null);
+      return;
+    }
+
+    const updateElapsed = () => {
+      setElapsedSeconds(
+        Math.max(0, (Date.now() - lastBlinkTime) / 1000)
+      );
+    };
+
+    updateElapsed();
+    const timer = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(timer);
+  }, [lastBlinkTime]);
+
+  // Continuous estimate, not the previous completed IBI.
+  const opi = calculateOPI(tfbut, elapsedSeconds);
   const opiStatus = getOPIStatus(opi);
 
   return {
@@ -13,5 +33,6 @@ export default function useOPI(ibi) {
     setTfbut,
     opi,
     opiStatus,
+    elapsedSeconds,
   };
 }
