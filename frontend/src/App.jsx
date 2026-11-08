@@ -33,12 +33,15 @@ export default function App() {
   } = useFaceLandmarker(videoRef, cameraOn);
 
   const {
-    tfbut,
-    setTfbut,
-    opi,
-    opiStatus,
-    elapsedSeconds,
-  } = useOPI(lastBlinkTime);
+  tfbut,
+  setTfbut,
+  opi,
+  opiStatus,
+  elapsedSeconds,
+  blinkBasedOPI,
+  blinkBasedIBI,
+  blinkBasedStatus,
+} = useOPI(lastBlinkTime, ibi,cameraOn);
 
   const {
     notificationsEnabled,
@@ -216,12 +219,15 @@ export default function App() {
             />
 
             <OPIPanel
-              tfbut={tfbut}
-              setTfbut={setTfbut}
-              opi={opi}
-              opiStatus={opiStatus}
-              elapsedSeconds={elapsedSeconds}
-            />
+  tfbut={tfbut}
+  setTfbut={setTfbut}
+  opi={opi}
+  opiStatus={opiStatus}
+  elapsedSeconds={elapsedSeconds}
+  blinkBasedOPI={blinkBasedOPI}
+  blinkBasedIBI={blinkBasedIBI}
+  blinkBasedStatus={blinkBasedStatus}
+/>
 
             <NotificationPanel
               notificationsEnabled={notificationsEnabled}
