@@ -1,10 +1,14 @@
+
 import { useEffect, useRef, useState } from "react";
 
 import Header from "./components/Header";
 import CameraPanel from "./components/CameraPanel";
 import EyeMetrics from "./components/EyeMetrics";
 import OPIPanel from "./components/OPIPanel";
+import EARChart from "./components/EARChart";
+import OPIChart from "./components/OPIChart";
 import NotificationPanel from "./components/NotificationPanel";
+
 import { Toaster } from "react-hot-toast";
 
 import useFaceLandmarker from "./useFaceLandmarker";
@@ -15,11 +19,15 @@ export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const cameraStartTimeRef = useRef(null);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [status, setStatus] = useState("Camera is off");
   const [darkMode, setDarkMode] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // History for both graphs
+  const [opiHistory, setOpiHistory] = useState([]);
 
   const {
     landmarks,
@@ -30,18 +38,19 @@ export default function App() {
     ibi,
     lastBlinkMinEAR,
     lastBlinkTime,
+    earHistory,
   } = useFaceLandmarker(videoRef, cameraOn);
 
   const {
-  tfbut,
-  setTfbut,
-  opi,
-  opiStatus,
-  elapsedSeconds,
-  blinkBasedOPI,
-  blinkBasedIBI,
-  blinkBasedStatus,
-} = useOPI(lastBlinkTime, ibi,cameraOn);
+    tfbut,
+    setTfbut,
+    opi,
+    opiStatus,
+    elapsedSeconds,
+    blinkBasedOPI,
+    blinkBasedIBI,
+    blinkBasedStatus,
+  } = useOPI(lastBlinkTime, ibi, cameraOn);
 
   const {
     notificationsEnabled,
@@ -51,6 +60,7 @@ export default function App() {
     testNotification,
   } = useEyeGuardNotifications(opiStatus.low);
 
+  // Update current time for recent blink indication.
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(Date.now());
@@ -64,6 +74,7 @@ export default function App() {
     lastBlinkTime !== undefined &&
     currentTime - lastBlinkTime < 1800;
 
+  // Dark mode
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
 
@@ -117,6 +128,44 @@ export default function App() {
     });
   }, [landmarks, cameraOn]);
 
+  // Continuous OPI history: sample once per second.
+  // Retain only the latest 30 seconds.
+  useEffect(() => {
+    if (!cameraOn) {
+      setOpiHistory([]);
+      cameraStartTimeRef.current = null;
+      return;
+    }
+
+    if (cameraStartTimeRef.current === null) {
+      cameraStartTimeRef.current = Date.now();
+    }
+
+    const interval = setInterval(() => {
+      if (opi === null || !Number.isFinite(opi)) return;
+
+      const elapsedTime =
+        (Date.now() - cameraStartTimeRef.current) / 1000;
+
+      setOpiHistory((previous) => {
+        const updated = [
+          ...previous,
+          {
+            time: Number(elapsedTime.toFixed(1)),
+            opi: Number(opi.toFixed(4)),
+          },
+        ];
+
+        return updated.filter(
+          (point) => elapsedTime - point.time <= 30
+        );
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [cameraOn, opi]);
+
+  // Start webcam
   async function startCamera() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -146,6 +195,7 @@ export default function App() {
       setStatus("Camera is running");
     } catch (error) {
       console.error("Unable to start camera:", error);
+
       setStatus(
         error.name === "NotAllowedError"
           ? "Camera permission was denied."
@@ -154,6 +204,7 @@ export default function App() {
     }
   }
 
+  // Stop webcam
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -165,6 +216,7 @@ export default function App() {
 
     if (canvasRef.current) {
       const context = canvasRef.current.getContext("2d");
+
       context?.clearRect(
         0,
         0,
@@ -177,6 +229,7 @@ export default function App() {
     setStatus("Camera is off");
   }
 
+  // Cleanup webcam when component unmounts.
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -186,18 +239,22 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-6 text-gray-900 transition-colors dark:bg-gray-950 dark:text-gray-100 sm:px-6 lg:px-10">
       <main className="mx-auto max-w-7xl space-y-8">
-      <Toaster
-  position="top-right"
-  toastOptions={{
-    duration: 5000,
-  }}
-/>
+
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 5000,
+          }}
+        />
+
         <Header
           darkMode={darkMode}
           setDarkMode={setDarkMode}
         />
 
+        {/* Main dashboard */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
           <CameraPanel
             videoRef={videoRef}
             canvasRef={canvasRef}
@@ -210,6 +267,7 @@ export default function App() {
           />
 
           <div className="space-y-6">
+
             <EyeMetrics
               blinkCount={blinkCount}
               blinkRate={blinkRate}
@@ -219,15 +277,15 @@ export default function App() {
             />
 
             <OPIPanel
-  tfbut={tfbut}
-  setTfbut={setTfbut}
-  opi={opi}
-  opiStatus={opiStatus}
-  elapsedSeconds={elapsedSeconds}
-  blinkBasedOPI={blinkBasedOPI}
-  blinkBasedIBI={blinkBasedIBI}
-  blinkBasedStatus={blinkBasedStatus}
-/>
+              tfbut={tfbut}
+              setTfbut={setTfbut}
+              opi={opi}
+              opiStatus={opiStatus}
+              elapsedSeconds={elapsedSeconds}
+              blinkBasedOPI={blinkBasedOPI}
+              blinkBasedIBI={blinkBasedIBI}
+              blinkBasedStatus={blinkBasedStatus}
+            />
 
             <NotificationPanel
               notificationsEnabled={notificationsEnabled}
@@ -236,13 +294,25 @@ export default function App() {
               disableNotifications={disableNotifications}
               testNotification={testNotification}
             />
+
           </div>
         </div>
 
+        {/* Both live graphs side by side */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+          <EARChart data={earHistory} />
+
+          <OPIChart data={opiHistory} />
+
+        </div>
+
+        {/* Footer */}
         <footer className="border-t border-gray-200 pt-4 text-center text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
           EyeGuard — an experimental webcam-based blink-monitoring
           prototype. It is not a medical diagnostic device.
         </footer>
+
       </main>
     </div>
   );

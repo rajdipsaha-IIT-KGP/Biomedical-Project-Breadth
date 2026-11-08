@@ -35,6 +35,11 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
   const closureStartTimeRef = useRef(null);
   const minimumEARRef = useRef(null);
 
+  // New refs for EAR graph
+  const earHistoryRef = useRef([]);
+  const cameraStartTimeRef = useRef(null);
+  const lastEARSampleTimeRef = useRef(0);
+
   const [landmarks, setLandmarks] = useState(null);
   const [modelStatus, setModelStatus] = useState("Loading model...");
   const [blinkCount, setBlinkCount] = useState(0);
@@ -43,6 +48,9 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
   const [ibi, setIbi] = useState(null);
   const [lastBlinkMinEAR, setLastBlinkMinEAR] = useState(null);
   const [lastBlinkTime, setLastBlinkTime] = useState(null);
+
+  // New state for EAR graph
+  const [earHistory, setEarHistory] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +95,19 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
     };
   }, []);
 
+  // Reset graph history when camera starts or stops
+  useEffect(() => {
+    if (cameraOn) {
+      cameraStartTimeRef.current = performance.now();
+      lastEARSampleTimeRef.current = 0;
+      earHistoryRef.current = [];
+      setEarHistory([]);
+    } else {
+      earHistoryRef.current = [];
+      setEarHistory([]);
+    }
+  }, [cameraOn]);
+
   useEffect(() => {
     if (!cameraOn || modelStatus !== "Model ready") return;
 
@@ -129,6 +150,31 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
 
             smoothedEARRef.current = smoothedEAR;
             setEar(smoothedEAR);
+
+            // Collect actual EAR values for the graph
+            const sampleTime = performance.now();
+
+            if (
+              sampleTime - lastEARSampleTimeRef.current >= 250
+            ) {
+              const elapsedTime =
+                (sampleTime - cameraStartTimeRef.current) / 1000;
+
+              const updatedHistory = [
+                ...earHistoryRef.current,
+                {
+                  time: Number(elapsedTime.toFixed(1)),
+                  ear: Number(smoothedEAR.toFixed(4)),
+                },
+              ].filter(
+                (point) => elapsedTime - point.time <= 30
+              );
+
+              earHistoryRef.current = updatedHistory;
+              lastEARSampleTimeRef.current = sampleTime;
+
+              setEarHistory(updatedHistory);
+            }
 
             const CLOSE_THRESHOLD = 0.19;
             const OPEN_THRESHOLD = 0.23;
@@ -219,6 +265,7 @@ export default function useFaceLandmarker(videoRef, cameraOn) {
     blinkRate,
     ibi,
     ear,
+    earHistory,
     lastBlinkMinEAR,
     lastBlinkTime,
   };
